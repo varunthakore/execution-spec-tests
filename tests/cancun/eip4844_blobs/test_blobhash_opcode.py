@@ -42,12 +42,50 @@ from ethereum_test_tools import Opcodes as Op
 from .spec import Spec, ref_spec_4844
 
 # Import fuzzing utilities
-from tests.fuzzing_utils import get_fuzz_config, random_uint256_biased
+from tests.fuzzing_utils import get_fuzz_config, random_uint256_biased, random_blob_hash
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_4844.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4844.version
 
 pytestmark = pytest.mark.valid_from("Cancun")
+
+
+def get_random_blob_hashes() -> List[Hash]:
+    """
+    Generate blob versioned hashes for blockchain tests with optional fuzzing.
+
+    Supports randomization via FUZZ_SEED env var:
+        Default (no fuzz): uses fixed hardcoded hashes
+        With fuzzing:      generates random hashes with KZG version prefix (0x01)
+
+    Used by: test_blobhash_scenarios, test_blobhash_invalid_blob_index,
+             test_blobhash_multiple_txs_in_block (blockchain_test functions)
+    """
+    config = get_fuzz_config()
+
+    # Hardcoded blob hashes (default)
+    hardcoded_hashes = [
+        "0x00b8c5b09810b5fc07355d3da42e2c3a3e200c1d9a678491b7e8e256fc50cc4f",
+        "0x005b4c8cc4f86aa2d2cf9e9ce97fca704a11a6c20f6b1d6c00a6e15f6d60a6df",
+        "0x00878f80eaf10be1a6f618e6f8c071b10a6c14d9b89a3bf2a3f3cf2db6c5681d",
+        "0x004eb72b108d562c639faeb6f8c6f366a28b0381c7d30431117ec8c7bb89f834",
+        "0x00a9b2a6c3f3f0675b768d49b5f5dc5b5d988f88d55766247ba9e40b125f16bb",
+        "0x00a4d4cde4aa01e57fb2c880d1d9c778c33bdf85e48ef4c4d4b4de51abccf4ed",
+        "0x0071c9b8a0c72d38f5e5b5d08e5cb5ce5e23fb1bc5d75f9c29f7b94df0bceeb7",
+        "0x002c8b6a8b11410c7d98d790e1098f1ed6d93cb7a64711481aaab1848e13212f",
+        "0x00d78c25f8a1d6aa04d0e2e2a71cf8dfaa4239fa0f301eb57c249d1e6bfe3c3d",
+        "0x00c778eb1348a73b9c30c7b1d282a5f8b2c5b5a12d5c5e4a4a35f9c5f639b4a4",
+    ]
+
+    if config.enabled:
+        # Generate random blob hashes with KZG version prefix (0x01)
+        random_hashes_bytes = random_blob_hash(config.count)
+        # Convert bytes to hex strings
+        random_hashes = ["0x" + h.hex() for h in random_hashes_bytes]
+        # Use random hashes instead of hardcoded
+        return add_kzg_version(random_hashes, Spec.BLOB_COMMITMENT_VERSION_KZG)
+
+    return add_kzg_version(hardcoded_hashes, Spec.BLOB_COMMITMENT_VERSION_KZG)
 
 
 def get_blobhash_index_values():
@@ -86,22 +124,8 @@ def get_blobhash_index_values():
 # Blobhash index values for test_blobhash_gas_cost
 blobhash_index_values = get_blobhash_index_values()
 
-# Random fixed list of blob versioned hashes
-random_blob_hashes = add_kzg_version(
-    [
-        "0x00b8c5b09810b5fc07355d3da42e2c3a3e200c1d9a678491b7e8e256fc50cc4f",
-        "0x005b4c8cc4f86aa2d2cf9e9ce97fca704a11a6c20f6b1d6c00a6e15f6d60a6df",
-        "0x00878f80eaf10be1a6f618e6f8c071b10a6c14d9b89a3bf2a3f3cf2db6c5681d",
-        "0x004eb72b108d562c639faeb6f8c6f366a28b0381c7d30431117ec8c7bb89f834",
-        "0x00a9b2a6c3f3f0675b768d49b5f5dc5b5d988f88d55766247ba9e40b125f16bb",
-        "0x00a4d4cde4aa01e57fb2c880d1d9c778c33bdf85e48ef4c4d4b4de51abccf4ed",
-        "0x0071c9b8a0c72d38f5e5b5d08e5cb5ce5e23fb1bc5d75f9c29f7b94df0bceeb7",
-        "0x002c8b6a8b11410c7d98d790e1098f1ed6d93cb7a64711481aaab1848e13212f",
-        "0x00d78c25f8a1d6aa04d0e2e2a71cf8dfaa4239fa0f301eb57c249d1e6bfe3c3d",
-        "0x00c778eb1348a73b9c30c7b1d282a5f8b2c5b5a12d5c5e4a4a35f9c5f639b4a4",
-    ],
-    Spec.BLOB_COMMITMENT_VERSION_KZG,
-)
+# Blob versioned hashes used by blockchain tests (randomized when fuzzing is enabled)
+random_blob_hashes = get_random_blob_hashes()
 
 
 class BlobhashScenario:

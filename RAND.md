@@ -51,7 +51,7 @@ The standard test fixtures have **hardcoded test values**, which limits their us
 | `tests/cancun/eip5656_mcopy/test_mcopy.py` | Updated `mcopy_test_cases()` to add random dest/src/length combinations |
 | `tests/cancun/eip1153_tstore/test_tstorage.py` | Updated `get_storage_slots_for_test()` to add random storage slot keys |
 | `tests/frontier/opcodes/test_calldatasize.py` | Updated `calldatasize_test_values()` to add random calldata sizes |
-| `tests/cancun/eip4844_blobs/test_blobhash_opcode.py` | Updated `get_blobhash_index_values()` to add random blobhash indices |
+| `tests/cancun/eip4844_blobs/test_blobhash_opcode.py` | Updated `get_blobhash_index_values()` for state_test and added `get_random_blob_hashes()` for blockchain_test randomization |
 
 ## Usage
 
@@ -507,6 +507,8 @@ To add randomization support to other test files:
 
 Commands to verify all fuzzing hooks work correctly:
 
+### State Tests (state_test fixture)
+
 ```bash
 cd /home/varun/execution-spec-tests
 
@@ -522,11 +524,28 @@ FUZZ_SEED=12345 FUZZ_MAX_INT="2**16" uv run fill --clean tests/cancun/eip1153_ts
 # 4. test_calldatasize.py
 FUZZ_SEED=12345 FUZZ_MAX_INT="2**16" uv run fill --clean tests/frontier/opcodes/test_calldatasize.py
 
-# 5. test_blobhash_opcode.py
+# 5. test_blobhash_opcode.py (state_test - gas cost)
 FUZZ_SEED=12345 FUZZ_MAX_INT="2**16" uv run fill --clean tests/cancun/eip4844_blobs/test_blobhash_opcode.py::test_blobhash_gas_cost
 
 # 6. test_count_leading_zeros.py (Osaka fork - requires Osaka EVM support)
 FUZZ_SEED=12345 FUZZ_MAX_INT="2**16" uv run fill --clean tests/osaka/eip7939_count_leading_zeros/test_count_leading_zeros.py
+```
+
+### Blockchain Tests (blockchain_test fixture)
+
+These generate `blockchain_tests` fixtures which are required for `witness-generator-cli` and include full block context:
+
+```bash
+cd /home/varun/execution-spec-tests
+
+# 7. test_blobhash_opcode.py - blockchain tests (randomizes blob versioned hashes)
+# These tests generate blockchain_tests/ fixtures suitable for witness generation
+FUZZ_SEED=12345 uv run fill --clean tests/cancun/eip4844_blobs/test_blobhash_opcode.py::test_blobhash_scenarios
+FUZZ_SEED=12345 uv run fill --clean tests/cancun/eip4844_blobs/test_blobhash_opcode.py::test_blobhash_invalid_blob_index
+FUZZ_SEED=12345 uv run fill --clean tests/cancun/eip4844_blobs/test_blobhash_opcode.py::test_blobhash_multiple_txs_in_block
+
+# Run all blobhash blockchain tests together
+FUZZ_SEED=12345 uv run fill --clean tests/cancun/eip4844_blobs/test_blobhash_opcode.py -k "test_blobhash_scenarios or test_blobhash_invalid_blob_index or test_blobhash_multiple_txs_in_block"
 ```
 
 ## Summary of Changes
@@ -551,6 +570,8 @@ FUZZ_SEED=12345 FUZZ_MAX_INT="2**16" uv run fill --clean tests/osaka/eip7939_cou
 
 ### Test Files Modified
 
+#### State Tests (state_test fixture)
+
 | File | Test Function(s) | What's Randomized |
 |------|------------------|-------------------|
 | `test_shift_combinations.py` | `test_shift_combinations` | Shift amounts (0-255), operand values (uint256) |
@@ -559,6 +580,16 @@ FUZZ_SEED=12345 FUZZ_MAX_INT="2**16" uv run fill --clean tests/osaka/eip7939_cou
 | `test_tstorage.py` | `test_transient_storage_unset_values`, `test_tload_after_tstore` | Storage slot keys (uint256) |
 | `test_calldatasize.py` | `test_calldatasize` | Calldata sizes (capped at 257 for gas) |
 | `test_blobhash_opcode.py` | `test_blobhash_gas_cost` | Blobhash index values (uint256) |
+
+#### Blockchain Tests (blockchain_test fixture)
+
+These tests generate `blockchain_tests` fixtures which include full block context and witness data needed for stateless execution and the `witness-generator-cli`.
+
+| File | Test Function(s) | What's Randomized |
+|------|------------------|-------------------|
+| `test_blobhash_opcode.py` | `test_blobhash_scenarios`, `test_blobhash_invalid_blob_index`, `test_blobhash_multiple_txs_in_block` | Blob versioned hashes (32-byte KZG hashes) |
+
+**Note**: State tests are simpler single-transaction tests, while blockchain tests test full block execution with proper block headers and transaction context. For tools like `witness-generator-cli` that require execution witnesses, blockchain tests are required.
 
 ## TODO: Future Randomization Hooks
 
@@ -573,7 +604,7 @@ The following tests are good candidates for adding fuzzing hooks due to their br
    - `test_calldatacopy.py` - CALLDATACOPY with various dest/offset/size combinations
 
 2. **`tests/cancun/eip4844_blobs/`** - Blob transaction tests
-   - Extend `test_blobhash_opcode.py` to cover more test functions
+   - ✅ `test_blobhash_opcode.py` - Extended with `get_random_blob_hashes()` for blockchain_test functions
    - `test_blob_txs.py` - Blob transaction validation
 
 3. **`tests/shanghai/eip3855_push0/`** - PUSH0 opcode tests
