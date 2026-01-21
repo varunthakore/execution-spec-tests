@@ -7,6 +7,35 @@ from ethereum_test_tools import Account, Alloc, StateTestFiller, Transaction
 from ethereum_test_tools import Macros as Om
 from ethereum_test_vm import Opcodes as Op
 
+# Import fuzzing utilities
+from tests.fuzzing_utils import get_fuzz_config, random_memory_size
+
+
+def calldatasize_test_values():
+    """
+    Generate args_size test values with optional fuzzing.
+
+    Supports randomization via FUZZ_SEED env var:
+        Default (no fuzz): uv run fill tests/frontier/opcodes/test_calldatasize.py
+        With fuzzing:      FUZZ_SEED=12345 FUZZ_COUNT=10 uv run fill tests/frontier/opcodes/test_calldatasize.py
+    """
+    config = get_fuzz_config()
+
+    # Hardcoded edge cases
+    hardcoded = [0, 2, 16, 33, 257]
+
+    # Filter by FUZZ_MAX_INT if set
+    if config.max_int is not None:
+        hardcoded = [v for v in hardcoded if v <= config.max_int]
+
+    # Add random values if fuzzing is enabled
+    if config.enabled:
+        # Use smaller sizes to avoid gas issues (cap at 257 to match original test's max)
+        random_sizes = [min(s, 257) for s in random_memory_size(config.count)]
+        hardcoded.extend(random_sizes)
+
+    return hardcoded
+
 
 @pytest.mark.ported_from(
     [
@@ -16,7 +45,7 @@ from ethereum_test_vm import Opcodes as Op
 )
 @pytest.mark.parametrize(
     "args_size",
-    [0, 2, 16, 33, 257],
+    calldatasize_test_values(),
 )
 @pytest.mark.parametrize("calldata_source", ["contract", "tx"])
 @pytest.mark.slow()

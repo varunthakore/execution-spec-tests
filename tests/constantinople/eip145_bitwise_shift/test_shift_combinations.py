@@ -1,6 +1,5 @@
 """Test bitwise shift opcodes in different combinations."""
 
-import itertools
 from typing import Callable
 
 import pytest
@@ -16,10 +15,14 @@ from ethereum_test_tools import Opcodes as Op
 
 from .spec import Spec, ref_spec_145
 
+# Import fuzzing utilities
+from tests.fuzzing_utils import get_fuzz_combinations, random_uint256_biased
+
 REFERENCE_SPEC_GIT_PATH = ref_spec_145.git_path
 REFERENCE_SPEC_VERSION = ref_spec_145.version
 
-list_of_args = [
+# Original hardcoded test values (edge cases) - always included
+HARDCODED_ARGS = [
     0,
     1,
     2,
@@ -41,7 +44,16 @@ list_of_args = [
     0x0000000000000000000000000000000080000000000000000000000000000000,
     0x8000000000000000000000000000000000000000000000000000000000000000,
 ]
-combinations = list(itertools.product(list_of_args, repeat=2))
+
+# Build combinations from test args (supports randomization via FUZZ_SEED env var)
+# Usage:
+#   Default (no fuzz):  uv run fill tests/constantinople/eip145_bitwise_shift/
+#   With fuzzing:       FUZZ_SEED=12345 FUZZ_COUNT=20 uv run fill tests/constantinople/eip145_bitwise_shift/
+combinations = get_fuzz_combinations(
+    hardcoded=HARDCODED_ARGS,
+    generator=random_uint256_biased,
+    repeat=2,
+)
 
 
 @pytest.mark.parametrize(

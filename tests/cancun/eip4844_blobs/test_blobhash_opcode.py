@@ -41,22 +41,50 @@ from ethereum_test_tools import Opcodes as Op
 
 from .spec import Spec, ref_spec_4844
 
+# Import fuzzing utilities
+from tests.fuzzing_utils import get_fuzz_config, random_uint256_biased
+
 REFERENCE_SPEC_GIT_PATH = ref_spec_4844.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4844.version
 
 pytestmark = pytest.mark.valid_from("Cancun")
 
 
+def get_blobhash_index_values():
+    """
+    Get blobhash index values with optional fuzzing.
+
+    Supports randomization via FUZZ_SEED env var:
+        Default (no fuzz): uv run fill tests/cancun/eip4844_blobs/test_blobhash_opcode.py
+        With fuzzing:      FUZZ_SEED=12345 FUZZ_COUNT=10 uv run fill tests/cancun/eip4844_blobs/test_blobhash_opcode.py
+    """
+    config = get_fuzz_config()
+
+    # Hardcoded edge cases
+    hardcoded = [
+        0x00,
+        0x01,
+        0x02,
+        0x03,
+        0x04,
+        2**256 - 1,
+        0xA12C8B6A8B11410C7D98D790E1098F1ED6D93CB7A64711481AAAB1848E13212F,
+    ]
+
+    # Filter by FUZZ_MAX_INT if set
+    if config.max_int is not None:
+        hardcoded = [v for v in hardcoded if v <= config.max_int]
+
+    # Add random values if fuzzing is enabled
+    if config.enabled:
+        random_indices = random_uint256_biased(config.count)
+        hardcoded.extend(random_indices)
+
+    return hardcoded
+
+
 # Blobhash index values for test_blobhash_gas_cost
-blobhash_index_values = [
-    0x00,
-    0x01,
-    0x02,
-    0x03,
-    0x04,
-    2**256 - 1,
-    0xA12C8B6A8B11410C7D98D790E1098F1ED6D93CB7A64711481AAAB1848E13212F,
-]
+blobhash_index_values = get_blobhash_index_values()
 
 # Random fixed list of blob versioned hashes
 random_blob_hashes = add_kzg_version(

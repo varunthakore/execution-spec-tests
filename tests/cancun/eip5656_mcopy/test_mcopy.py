@@ -23,6 +23,9 @@ from ethereum_test_tools import Opcodes as Op
 
 from .common import REFERENCE_SPEC_GIT_PATH, REFERENCE_SPEC_VERSION, mcopy
 
+# Import fuzzing utilities
+from tests.fuzzing_utils import get_fuzz_config, random_memory_offset, random_memory_size
+
 REFERENCE_SPEC_GIT_PATH = REFERENCE_SPEC_GIT_PATH
 REFERENCE_SPEC_VERSION = REFERENCE_SPEC_VERSION
 
@@ -127,54 +130,74 @@ def post(code_address: Address, code_storage: Storage) -> Mapping:  # noqa: D103
     }
 
 
+# Hardcoded edge cases for MCOPY (always included)
+MCOPY_HARDCODED_CASES = [
+    ((0x00, 0x00, 0x00), "zero_inputs"),
+    ((2**256 - 1, 0x00, 0x00), "zero_length_out_of_bounds_destination"),
+    ((0x00, 0x00, 0x01), "single_byte_rewrite"),
+    ((0x00, 0x00, 0x20), "full_word_rewrite"),
+    ((0x01, 0x00, 0x01), "single_byte_forward_overwrite"),
+    ((0x01, 0x00, 0x20), "full_word_forward_overwrite"),
+    ((0x11, 0x11, 0x01), "mid_word_single_byte_rewrite"),
+    ((0x11, 0x11, 0x20), "mid_word_single_word_rewrite"),
+    ((0x11, 0x11, 0x40), "mid_word_multi_word_rewrite"),
+    ((0x10, 0x00, 0x40), "two_words_forward_overwrite"),
+    ((0x00, 0x10, 0x40), "two_words_backward_overwrite"),
+    ((0x0F, 0x10, 0x40), "two_words_backward_overwrite_single_byte_offset"),
+    ((0x100, 0x01, 0x01), "single_byte_memory_extension"),
+    ((0x100, 0x01, 0x20), "single_word_memory_extension"),
+    ((0x100, 0x01, 0x1F), "single_word_minus_one_byte_memory_extension"),
+    ((0x100, 0x01, 0x21), "single_word_plus_one_byte_memory_extension"),
+    ((0x00, 0x00, 0x100), "full_memory_rewrite"),
+    ((0x100, 0x00, 0x100), "full_memory_copy"),
+    ((0x200, 0x00, 0x100), "full_memory_copy_offset"),
+    ((0x00, 0x100, 0x100), "full_memory_clean"),
+    ((0x100, 0x100, 0x01), "out_of_bounds_memory_extension"),
+]
+
+
+def mcopy_test_cases():
+    """
+    Generate MCOPY test cases with optional fuzzing.
+
+    Supports randomization via FUZZ_SEED env var:
+        Default (no fuzz): uv run fill tests/cancun/eip5656_mcopy/
+        With fuzzing:      FUZZ_SEED=12345 FUZZ_COUNT=20 uv run fill tests/cancun/eip5656_mcopy/
+    """
+    config = get_fuzz_config()
+    cases = []
+    ids = []
+
+    # Add hardcoded cases (filtered by FUZZ_MAX_INT if set)
+    for (dest, src, length), name in MCOPY_HARDCODED_CASES:
+        if config.max_int is not None:
+            if dest > config.max_int or src > config.max_int or length > config.max_int:
+                continue
+        cases.append((dest, src, length))
+        ids.append(name)
+
+    # Add random cases if fuzzing is enabled
+    if config.enabled:
+        random_dests = random_memory_offset(config.count)
+        random_srcs = random_memory_offset(config.count)
+        random_lengths = random_memory_size(config.count)
+        for i in range(config.count):
+            dest = random_dests[i]
+            src = random_srcs[i]
+            length = random_lengths[i]
+            cases.append((dest, src, length))
+            ids.append(f"fuzz_{i}_dest_{dest:#x}_src_{src:#x}_len_{length:#x}")
+
+    return cases, ids
+
+
+_mcopy_cases, _mcopy_ids = mcopy_test_cases()
+
+
 @pytest.mark.parametrize(
     "dest,src,length",
-    [
-        (0x00, 0x00, 0x00),
-        (2**256 - 1, 0x00, 0x00),
-        (0x00, 0x00, 0x01),
-        (0x00, 0x00, 0x20),
-        (0x01, 0x00, 0x01),
-        (0x01, 0x00, 0x20),
-        (0x11, 0x11, 0x01),
-        (0x11, 0x11, 0x20),
-        (0x11, 0x11, 0x40),
-        (0x10, 0x00, 0x40),
-        (0x00, 0x10, 0x40),
-        (0x0F, 0x10, 0x40),
-        (0x100, 0x01, 0x01),
-        (0x100, 0x01, 0x20),
-        (0x100, 0x01, 0x1F),
-        (0x100, 0x01, 0x21),
-        (0x00, 0x00, 0x100),
-        (0x100, 0x00, 0x100),
-        (0x200, 0x00, 0x100),
-        (0x00, 0x100, 0x100),
-        (0x100, 0x100, 0x01),
-    ],
-    ids=[
-        "zero_inputs",
-        "zero_length_out_of_bounds_destination",
-        "single_byte_rewrite",
-        "full_word_rewrite",
-        "single_byte_forward_overwrite",
-        "full_word_forward_overwrite",
-        "mid_word_single_byte_rewrite",
-        "mid_word_single_word_rewrite",
-        "mid_word_multi_word_rewrite",
-        "two_words_forward_overwrite",
-        "two_words_backward_overwrite",
-        "two_words_backward_overwrite_single_byte_offset",
-        "single_byte_memory_extension",
-        "single_word_memory_extension",
-        "single_word_minus_one_byte_memory_extension",
-        "single_word_plus_one_byte_memory_extension",
-        "full_memory_rewrite",
-        "full_memory_copy",
-        "full_memory_copy_offset",
-        "full_memory_clean",
-        "out_of_bounds_memory_extension",
-    ],
+    _mcopy_cases,
+    ids=_mcopy_ids,
 )
 @pytest.mark.with_all_evm_code_types
 @pytest.mark.valid_from("Cancun")

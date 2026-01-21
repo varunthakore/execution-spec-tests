@@ -5,6 +5,9 @@ Tests [EIP-7939: Count leading zeros (CLZ)](https://eips.ethereum.org/EIPS/eip-7
 import pytest
 
 from ethereum_test_base_types import Storage
+
+# Import fuzzing utilities
+from tests.fuzzing_utils import get_fuzz_config, random_uint256_biased
 from ethereum_test_checklists import EIPChecklist
 from ethereum_test_forks import Fork
 from ethereum_test_tools import (
@@ -30,8 +33,15 @@ REFERENCE_SPEC_VERSION = ref_spec_7939.version
 
 
 def clz_parameters() -> list:
-    """Generate all test case parameters."""
+    """
+    Generate all test case parameters.
+
+    Supports randomization via FUZZ_SEED env var:
+        Default (no fuzz): uv run fill tests/osaka/eip7939_count_leading_zeros/
+        With fuzzing:      FUZZ_SEED=12345 FUZZ_COUNT=20 uv run fill tests/osaka/eip7939_count_leading_zeros/
+    """
     test_cases = []
+    config = get_fuzz_config()
 
     # Format 0x000...000: all zeros
     test_cases.append(("zero", 0, 256))
@@ -39,6 +49,9 @@ def clz_parameters() -> list:
     # Format 0xb000...111: leading zeros followed by ones
     for bits in range(257):
         value = (2**256 - 1) >> bits
+        # Filter by FUZZ_MAX_INT if set
+        if config.max_int is not None and value > config.max_int:
+            continue
         expected_clz = bits
         assert expected_clz == Spec.calculate_clz(value), (
             f"CLZ calculation mismatch for leading_zeros_{bits}: "
@@ -55,13 +68,16 @@ def clz_parameters() -> list:
         else:
             value = 1 << bits
             expected_clz = 255 - bits
+        # Filter by FUZZ_MAX_INT if set
+        if config.max_int is not None and value > config.max_int:
+            continue
         assert expected_clz == Spec.calculate_clz(value), (
             f"CLZ calculation mismatch for single_bit_{bits}: "
             f"manual={expected_clz}, spec={Spec.calculate_clz(value)}, value={hex(value)}"
         )
         test_cases.append((f"single_bit_{bits}", value, expected_clz))
 
-    # Arbitrary edge cases
+    # Arbitrary edge cases (filtered by FUZZ_MAX_INT if set)
     arbitrary_values = [
         0x123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0,
         0x00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF00FF,
@@ -73,8 +89,18 @@ def clz_parameters() -> list:
         2**255 - 1,
     ]
     for i, value in enumerate(arbitrary_values):
+        # Filter by FUZZ_MAX_INT if set
+        if config.max_int is not None and value > config.max_int:
+            continue
         expected_clz = Spec.calculate_clz(value)
         test_cases.append((f"arbitrary_{i}", value, expected_clz))
+
+    # Add random values if fuzzing is enabled
+    if config.enabled:
+        random_values = random_uint256_biased(config.count)
+        for i, value in enumerate(random_values):
+            expected_clz = Spec.calculate_clz(value)
+            test_cases.append((f"fuzz_{i}", value, expected_clz))
 
     return test_cases
 

@@ -24,12 +24,40 @@ from ethereum_test_tools import Opcodes as Op
 from . import PytestParameterEnum
 from .spec import Spec, ref_spec_1153
 
+# Import fuzzing utilities
+from tests.fuzzing_utils import get_fuzz_config, random_storage_key
+
 REFERENCE_SPEC_GIT_PATH = ref_spec_1153.git_path
 REFERENCE_SPEC_VERSION = ref_spec_1153.version
 
 pytestmark = [pytest.mark.valid_from("Cancun")]
 
 code_address = 0x100
+
+
+def get_storage_slots_for_test() -> list:
+    """
+    Get storage slots for testing, with optional fuzzing.
+
+    Supports randomization via FUZZ_SEED env var:
+        Default (no fuzz): uv run fill tests/cancun/eip1153_tstore/
+        With fuzzing:      FUZZ_SEED=12345 FUZZ_COUNT=10 uv run fill tests/cancun/eip1153_tstore/
+    """
+    config = get_fuzz_config()
+
+    # Hardcoded edge cases
+    hardcoded_slots = [0, 1, 2, 2**128, 2**256 - 1]
+
+    # Filter by FUZZ_MAX_INT if set
+    if config.max_int is not None:
+        hardcoded_slots = [s for s in hardcoded_slots if s <= config.max_int]
+
+    # Add random slots if fuzzing is enabled
+    if config.enabled:
+        random_slots = random_storage_key(config.count)
+        hardcoded_slots.extend(random_slots)
+
+    return hardcoded_slots
 
 
 def test_transient_storage_unset_values(state_test: StateTestFiller, pre: Alloc) -> None:
@@ -42,10 +70,12 @@ def test_transient_storage_unset_values(state_test: StateTestFiller, pre: Alloc)
     (https://github.com/ethereum/tests/blob/
     9b00b68593f5869eb51a6659e1cc983e875e616b/src/EIPTestsFiller/StateTests/
     stEIP1153-transientStorage/01_tloadBeginningTxnFiller.yml)",
+
+    Supports randomization via FUZZ_SEED env var.
     """
     env = Environment()
 
-    slots_under_test = [0, 1, 2, 2**128, 2**256 - 1]
+    slots_under_test = get_storage_slots_for_test()
     code = sum(Op.SSTORE(slot, Op.TLOAD(slot)) for slot in slots_under_test)
 
     code_address = pre.deploy_contract(
@@ -79,10 +109,12 @@ def test_tload_after_tstore(state_test: StateTestFiller, pre: Alloc) -> None:
     (https://github.com/ethereum/tests/blob/
     9b00b68593f5869eb51a6659e1cc983e875e616b/src/EIPTestsFiller/StateTests/
     stEIP1153-transientStorage/02_tloadAfterTstoreFiller.yml)",
+
+    Supports randomization via FUZZ_SEED env var.
     """
     env = Environment()
 
-    slots_under_test = [0, 1, 2, 2**128, 2**256 - 1]
+    slots_under_test = get_storage_slots_for_test()
     code = sum(
         Op.TSTORE(slot, slot) + Op.SSTORE(slot, Op.TLOAD(slot)) for slot in slots_under_test
     )
