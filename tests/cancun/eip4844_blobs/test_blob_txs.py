@@ -18,7 +18,47 @@ from typing import List, Optional, Tuple
 
 import pytest
 
+from tests.fuzzing_utils import get_fuzz_config, random_value, random_calldata, random_storage_key
+
 from ethereum_test_forks import Fork
+
+
+def get_tx_value_params() -> List[int]:
+    """Get transaction value parameters with optional fuzzing."""
+    config = get_fuzz_config()
+    hardcoded = [0, 1]
+    if config.enabled:
+        random_values = list(random_value(min(config.count, 3)))
+        # Cap values to reasonable amounts for blob txs (avoid balance issues)
+        random_values = [v % (10**12) for v in random_values]
+        return hardcoded + random_values
+    return hardcoded
+
+
+def get_tx_calldata_params() -> List[bytes]:
+    """Get transaction calldata parameters with optional fuzzing."""
+    config = get_fuzz_config()
+    hardcoded = [b"", b"\x00", b"\x01"]
+    if config.enabled:
+        random_data = list(random_calldata(min(config.count, 3), max_len=64))
+        return hardcoded + random_data
+    return hardcoded
+
+
+def get_access_list_storage_keys() -> List[int]:
+    """Get access list storage keys with optional fuzzing."""
+    config = get_fuzz_config()
+    hardcoded = [100, 200]
+    if config.enabled:
+        random_keys = list(random_storage_key(min(config.count, 2)))
+        return hardcoded + random_keys
+    return hardcoded
+
+
+# Generate fuzzed parameters at module load time
+TX_VALUE_PARAMS = get_tx_value_params()
+TX_CALLDATA_PARAMS = get_tx_calldata_params()
+ACCESS_LIST_STORAGE_KEYS = get_access_list_storage_keys()
 from ethereum_test_tools import (
     EOA,
     AccessList,
@@ -613,17 +653,13 @@ def test_invalid_block_blob_count(
 
 @pytest.mark.parametrize(
     "tx_access_list",
-    [[], [AccessList(address=100, storage_keys=[100, 200])]],
+    [[], [AccessList(address=100, storage_keys=ACCESS_LIST_STORAGE_KEYS[:2])]],
     ids=["no_access_list", "access_list"],
 )
 @pytest.mark.parametrize("tx_max_fee_per_gas", [7, 14])
 @pytest.mark.parametrize("tx_max_priority_fee_per_gas", [0, 7])
-@pytest.mark.parametrize("tx_value", [0, 1])
-@pytest.mark.parametrize(
-    "tx_calldata",
-    [b"", b"\x00", b"\x01"],
-    ids=["no_calldata", "single_zero_calldata", "single_one_calldata"],
-)
+@pytest.mark.parametrize("tx_value", TX_VALUE_PARAMS)
+@pytest.mark.parametrize("tx_calldata", TX_CALLDATA_PARAMS)
 @pytest.mark.parametrize("tx_max_fee_per_blob_gas_multiplier", [1, 100, 10000])
 @pytest.mark.parametrize("account_balance_modifier", [-1], ids=["exact_balance_minus_1"])
 @pytest.mark.parametrize("tx_error", [TransactionException.INSUFFICIENT_ACCOUNT_FUNDS], ids=[""])
@@ -665,17 +701,13 @@ def test_insufficient_balance_blob_tx(
 )
 @pytest.mark.parametrize(
     "tx_access_list",
-    [[], [AccessList(address=100, storage_keys=[100, 200])]],
+    [[], [AccessList(address=100, storage_keys=ACCESS_LIST_STORAGE_KEYS[:2])]],
     ids=["no_access_list", "access_list"],
 )
 @pytest.mark.parametrize("tx_max_fee_per_gas", [7, 14])
 @pytest.mark.parametrize("tx_max_priority_fee_per_gas", [0, 7])
-@pytest.mark.parametrize("tx_value", [0, 1])
-@pytest.mark.parametrize(
-    "tx_calldata",
-    [b"", b"\x00", b"\x01"],
-    ids=["no_calldata", "single_zero_calldata", "single_one_calldata"],
-)
+@pytest.mark.parametrize("tx_value", TX_VALUE_PARAMS)
+@pytest.mark.parametrize("tx_calldata", TX_CALLDATA_PARAMS)
 @pytest.mark.parametrize("block_base_fee_per_gas", [7, 100])
 @pytest.mark.parametrize("tx_max_fee_per_blob_gas_multiplier", [1, 100, 10000])
 @pytest.mark.valid_from("Cancun")
@@ -714,17 +746,13 @@ def test_sufficient_balance_blob_tx(
 )
 @pytest.mark.parametrize(
     "tx_access_list",
-    [[], [AccessList(address=100, storage_keys=[100, 200])]],
+    [[], [AccessList(address=100, storage_keys=ACCESS_LIST_STORAGE_KEYS[:2])]],
     ids=["no_access_list", "access_list"],
 )
 @pytest.mark.parametrize("tx_max_fee_per_gas", [7, 14])
 @pytest.mark.parametrize("tx_max_priority_fee_per_gas", [0, 7])
-@pytest.mark.parametrize("tx_value", [0, 1])
-@pytest.mark.parametrize(
-    "tx_calldata",
-    [b"", b"\x00", b"\x01"],
-    ids=["no_calldata", "single_zero_calldata", "single_one_calldata"],
-)
+@pytest.mark.parametrize("tx_value", TX_VALUE_PARAMS)
+@pytest.mark.parametrize("tx_calldata", TX_CALLDATA_PARAMS)
 @pytest.mark.parametrize("tx_max_fee_per_blob_gas_multiplier", [1, 100, 10000])
 @pytest.mark.parametrize("sender_initial_balance", [0])
 @pytest.mark.valid_from("Cancun")
@@ -780,12 +808,12 @@ def test_sufficient_balance_blob_tx_pre_fund_tx(
 )
 @pytest.mark.parametrize(
     "tx_access_list",
-    [[], [AccessList(address=100, storage_keys=[100, 200])]],
+    [[], [AccessList(address=100, storage_keys=ACCESS_LIST_STORAGE_KEYS[:2])]],
     ids=["no_access_list", "access_list"],
 )
 @pytest.mark.parametrize("tx_max_fee_per_gas", [7, 14])
 @pytest.mark.parametrize("tx_max_priority_fee_per_gas", [0, 7])
-@pytest.mark.parametrize("tx_value", [0, 1])
+@pytest.mark.parametrize("tx_value", TX_VALUE_PARAMS[:2])  # Keep smaller set for this test
 @pytest.mark.parametrize(
     "tx_calldata",
     [b"", b"\x01"],

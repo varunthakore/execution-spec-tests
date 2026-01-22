@@ -36,10 +36,78 @@ from ethereum_test_tools import (
 )
 from ethereum_test_vm import Opcodes as Op
 
+from tests.fuzzing_utils import get_fuzz_config, random_timestamp, random_balance
+
 from .spec import Spec, ref_spec_4788
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_4788.git_path
 REFERENCE_SPEC_VERSION = ref_spec_4788.version
+
+
+def get_timestamp_params() -> List[tuple]:
+    """Get timestamp parameters with optional fuzzing."""
+    config = get_fuzz_config()
+    # Hardcoded edge cases with their validity status
+    hardcoded = [
+        (0x0C, True),  # twelve
+        (2**32, True),  # arbitrary
+        (2**64 - 2, True),  # near-max
+        (2**64 - 1, True),  # max
+    ]
+    if config.enabled:
+        # Generate random timestamps within valid uint64 range
+        random_ts = list(random_timestamp(min(config.count, 3)))
+        # All valid timestamps should return True for valid_input
+        random_pairs = [(ts, True) for ts in random_ts]
+        return hardcoded + random_pairs
+    return hardcoded
+
+
+def get_balance_params() -> List:
+    """Get system address balance parameters with optional fuzzing."""
+    config = get_fuzz_config()
+    hardcoded = [
+        pytest.param(
+            0,
+            id="empty_system_address",
+            marks=pytest.mark.pre_alloc_group(
+                "beacon_root_empty_system", reason="Tests with empty system address balance"
+            ),
+        ),
+        pytest.param(
+            1,
+            id="one_wei_system_address",
+            marks=pytest.mark.pre_alloc_group(
+                "beacon_root_one_wei_system", reason="Tests with 1 wei system address balance"
+            ),
+        ),
+        pytest.param(
+            int(1e18),
+            id="one_eth_system_address",
+            marks=pytest.mark.pre_alloc_group(
+                "beacon_root_one_eth_system", reason="Tests with 1 ETH system address balance"
+            ),
+        ),
+    ]
+    if config.enabled:
+        random_bals = list(random_balance(min(config.count, 2)))
+        random_params = [
+            pytest.param(
+                bal,
+                id=f"random_balance_{i}",
+                marks=pytest.mark.pre_alloc_group(
+                    f"beacon_root_random_balance_{i}", reason=f"Tests with random balance {bal}"
+                ),
+            )
+            for i, bal in enumerate(random_bals)
+        ]
+        return hardcoded + random_params
+    return hardcoded
+
+
+# Generate fuzzed parameters at module load time
+TIMESTAMP_PARAMS = get_timestamp_params()
+BALANCE_PARAMS = get_balance_params()
 
 
 def count_factory(start: int, step: int = 1) -> Callable[[], Iterator[int]]:
@@ -108,44 +176,12 @@ def test_beacon_root_contract_calls(
 
 @pytest.mark.parametrize(
     "timestamp, valid_input",
-    [
-        (0x0C, True),  # twelve
-        (2**32, True),  # arbitrary
-        (2**64 - 2, True),  # near-max
-        (2**64 - 1, True),  # max
-        # TODO: Update t8n to un marshal > 64-bit int
-        # Exception: failed to evaluate: ERROR(10): failed un marshaling stdin
-        # (2**64, False),  # overflow
-        # Exception: failed to evaluate: ERROR(10): failed un marshaling stdin
-        # (2**64 + 1, False),  # overflow+1
-    ],
+    TIMESTAMP_PARAMS,
 )
 @pytest.mark.parametrize("auto_access_list", [False, True])
 @pytest.mark.parametrize(
     "system_address_balance",
-    [
-        pytest.param(
-            0,
-            id="empty_system_address",
-            marks=pytest.mark.pre_alloc_group(
-                "beacon_root_empty_system", reason="Tests with empty system address balance"
-            ),
-        ),
-        pytest.param(
-            1,
-            id="one_wei_system_address",
-            marks=pytest.mark.pre_alloc_group(
-                "beacon_root_one_wei_system", reason="Tests with 1 wei system address balance"
-            ),
-        ),
-        pytest.param(
-            int(1e18),
-            id="one_eth_system_address",
-            marks=pytest.mark.pre_alloc_group(
-                "beacon_root_one_eth_system", reason="Tests with 1 ETH system address balance"
-            ),
-        ),
-    ],
+    BALANCE_PARAMS,
 )
 @pytest.mark.valid_from("Cancun")
 def test_beacon_root_contract_timestamps(

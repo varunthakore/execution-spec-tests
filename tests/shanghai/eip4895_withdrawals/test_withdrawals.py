@@ -23,6 +23,8 @@ from ethereum_test_tools import (
 )
 from ethereum_test_vm import Opcodes as Op
 
+from tests.fuzzing_utils import get_fuzz_config, random_withdrawal_amount, random_validator_index
+
 from .spec import ref_spec_4895
 
 REFERENCE_SPEC_GIT_PATH = ref_spec_4895.git_path
@@ -31,6 +33,31 @@ REFERENCE_SPEC_VERSION = ref_spec_4895.version
 pytestmark = pytest.mark.valid_from("Shanghai")
 
 ONE_GWEI = 10**9
+
+
+def get_withdrawal_amount_params() -> List[int]:
+    """Get withdrawal amount parameters with optional fuzzing."""
+    config = get_fuzz_config()
+    hardcoded = [1, 10, 100, 1000]  # Amounts in Gwei
+    if config.enabled:
+        random_amounts = list(random_withdrawal_amount(min(config.count, 3)))
+        return hardcoded + random_amounts
+    return hardcoded
+
+
+def get_validator_index_params() -> List[int]:
+    """Get validator index parameters with optional fuzzing."""
+    config = get_fuzz_config()
+    hardcoded = [0, 1, 100, 2**32 - 1]
+    if config.enabled:
+        random_indices = list(random_validator_index(min(config.count, 3)))
+        return hardcoded + random_indices
+    return hardcoded
+
+
+# Generate fuzzed parameters at module load time
+WITHDRAWAL_AMOUNT_PARAMS = get_withdrawal_amount_params()
+VALIDATOR_INDEX_PARAMS = get_validator_index_params()
 
 
 @pytest.mark.parametrize(
@@ -130,11 +157,19 @@ class TestUseValueInTx:
         blockchain_test(pre=pre, post=post, blocks=blocks)
 
 
+@pytest.mark.parametrize("withdrawal_amount", WITHDRAWAL_AMOUNT_PARAMS[:4])  # Use first 4 to keep test count manageable
+@pytest.mark.parametrize("validator_index", VALIDATOR_INDEX_PARAMS[:2])  # Use first 2
 def test_use_value_in_contract(
     blockchain_test: BlockchainTestFiller,
     pre: Alloc,
+    withdrawal_amount: int,
+    validator_index: int,
 ) -> None:
-    """Test sending value from contract that has not received a withdrawal."""
+    """
+    Test sending value from contract that has not received a withdrawal.
+
+    Withdrawal amount and validator index are parametrized with optional fuzzing support.
+    """
     sender = pre.fund_eoa()
     recipient = pre.fund_eoa(1)
 
@@ -156,9 +191,9 @@ def test_use_value_in_contract(
 
     withdrawal = Withdrawal(
         index=0,
-        validator_index=0,
+        validator_index=validator_index,
         address=contract_address,
-        amount=1,
+        amount=withdrawal_amount,
     )
 
     blocks = [
@@ -185,9 +220,18 @@ def test_use_value_in_contract(
     blockchain_test(pre=pre, post=post, blocks=blocks)
 
 
-def test_balance_within_block(blockchain_test: BlockchainTestFiller, pre: Alloc) -> None:
+@pytest.mark.parametrize("withdrawal_amount", WITHDRAWAL_AMOUNT_PARAMS[:3])
+@pytest.mark.parametrize("validator_index", VALIDATOR_INDEX_PARAMS[:2])
+def test_balance_within_block(
+    blockchain_test: BlockchainTestFiller,
+    pre: Alloc,
+    withdrawal_amount: int,
+    validator_index: int,
+) -> None:
     """
     Test withdrawal balance increase within the same block in a contract call.
+
+    Withdrawal amount and validator index are parametrized with optional fuzzing support.
     """
     save_balance_on_block_number = Op.SSTORE(
         Op.NUMBER,
@@ -210,9 +254,9 @@ def test_balance_within_block(blockchain_test: BlockchainTestFiller, pre: Alloc)
             withdrawals=[
                 Withdrawal(
                     index=0,
-                    validator_index=0,
+                    validator_index=validator_index,
                     address=recipient,
-                    amount=1,
+                    amount=withdrawal_amount,
                 )
             ],
         ),
@@ -232,7 +276,7 @@ def test_balance_within_block(blockchain_test: BlockchainTestFiller, pre: Alloc)
         contract_address: Account(
             storage={
                 1: ONE_GWEI,
-                2: 2 * ONE_GWEI,
+                2: ONE_GWEI + (withdrawal_amount * ONE_GWEI),
             }
         )
     }
